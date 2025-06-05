@@ -11,6 +11,7 @@ rapidfuzz = "*"
 langchain-aws = "*"
 langchain = "*"
 langgraph = "*"
+tabulate = "*"
 
 [dev-packages]
 

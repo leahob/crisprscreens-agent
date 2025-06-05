@@ -123,8 +123,8 @@ gene_tool = Tool(
 
 screen_tool = Tool(
     name="ScreenQuery",
-    func=lambda screen_id: get_results_by_screens(screen_id),
-    description="Retrieve all CRISPR screen results for a given SCREEN_ID or list of SCREEN_IDs."
+    func=lambda screen_id: get_results_by_screens(screen_id).head(100).to_markdown(index=False),
+    description="Retrieve up to the first 100 CRISPR screen results for a given SCREEN_ID or list of SCREEN_IDs, formatted as a markdown table."
 )
 
 condition_tool = Tool(
@@ -188,6 +188,8 @@ with st.expander("Show controlled vocabularies"):
 # --- Chat history state ---
 if 'chat_history' not in st.session_state:
     st.session_state['chat_history'] = [("system", system_prompt)]
+if 'last_raw_response' not in st.session_state:
+    st.session_state['last_raw_response'] = None
 
 # --- Chat input and controls ---
 with st.form(key="chat_form", clear_on_submit=True):
@@ -207,16 +209,36 @@ for role, msg in st.session_state['chat_history']:
         st.markdown(f"**You:** {msg}")
     elif role == "ai":
         st.markdown(f"**Agent:** {msg}")
+    elif role == "trace":
+        st.markdown(msg)
     # Optionally show system prompt at top only
+
+# --- Show last raw agent response persistently ---
+if st.session_state.get('last_raw_response'):
+    st.markdown(f"<details><summary>Raw agent response</summary><pre>{st.session_state['last_raw_response']}</pre></details>", unsafe_allow_html=True)
 
 # --- Handle new user input ---
 if submit and user_input.strip():
     st.session_state['chat_history'].append(("human", user_input.strip()))
-    response = agent.invoke({"messages": st.session_state['chat_history']})
+    response = agent.invoke({
+        "messages": st.session_state['chat_history'],
+        "return_intermediate_steps": True
+    })
+    # Store the full agent response in session state for persistent display
+    st.session_state['last_raw_response'] = str(response)
+    # Extract agent reply
     if isinstance(response, dict) and 'messages' in response and response['messages']:
         agent_reply = response['messages'][-1].content
     else:
         agent_reply = str(response)
     st.session_state['chat_history'].append(("ai", agent_reply))
+    # Extract and display intermediate steps if present
+    if isinstance(response, dict) and 'intermediate_steps' in response and response['intermediate_steps']:
+        for step in response['intermediate_steps']:
+            tool_name = step.get('tool', 'Unknown Tool')
+            tool_input = step.get('tool_input', '')
+            tool_output = step.get('output', '')
+            trace_msg = f"**Tool Trace:**\n- Tool: `{tool_name}`\n- Input: `{tool_input}`\n- Output: `{tool_output}`"
+            st.session_state['chat_history'].append(("trace", trace_msg))
     st.rerun()
 
